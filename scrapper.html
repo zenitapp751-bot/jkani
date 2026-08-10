@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JKAnime Scrapper – Directorio Pro</title>
+    <title>JKAnime Scrapper (Pure JS & HTML5)</title>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- HLS.js Library -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <!-- Configuración del Proxy (config.js) -->
+    <!-- Configuración Global (config.js) -->
     <script src="config.js"></script>
-    <!-- JKAnime Scraper Engine (Client-Side JS) -->
+    <!-- JKAnime Scraper Engine (Pure Client-Side JS) -->
     <script src="jkanime-client.js"></script>
     <style>
         :root {
@@ -74,12 +74,22 @@
         .header-title {
             display: flex;
             align-items: center;
-            gap: 10px;
+            justify-content: space-between;
             font-weight: bold;
             color: var(--accent);
             text-transform: uppercase;
             letter-spacing: 1px;
             font-size: 0.9rem;
+        }
+
+        .badge-js {
+            background: var(--accent-bg);
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            text-transform: none;
         }
 
         .search-wrapper {
@@ -205,7 +215,7 @@
             margin-bottom: 20px;
         }
 
-        #video-container {
+        #player-container {
             display: none;
             margin-bottom: 20px;
             background: #000;
@@ -213,10 +223,10 @@
             border: 1px solid var(--border);
             overflow: hidden;
             width: 100%;
-            max-width: 800px;
+            max-width: 850px;
         }
 
-        video { width: 100%; aspect-ratio: 16/9; display: block; }
+        video, iframe { width: 100%; aspect-ratio: 16/9; display: block; border: none; }
 
         pre {
             background: #000;
@@ -276,7 +286,10 @@
 
 <div id="list">
     <div class="list-header">
-        <div class="header-title"><i data-lucide="database"></i> Directorio</div>
+        <div class="header-title">
+            <span><i data-lucide="database" style="vertical-align:middle; width:16px"></i> Directorio</span>
+            <span class="badge-js">100% Client JS</span>
+        </div>
         <div class="search-wrapper">
             <i data-lucide="search" class="icon-search"></i>
             <input type="text" id="anime-search" placeholder="Buscar anime..." oninput="updateSearch(this.value)">
@@ -301,7 +314,7 @@
 <div id="info">
     <div class="info-top-bar">
         <div style="display:flex; align-items:center; gap:10px; color:var(--text-dim)">
-            <i data-lucide="terminal"></i> <span>Output JSON</span>
+            <i data-lucide="terminal"></i> <span>Output JSON (Pure JS)</span>
         </div>
         <div id="global-actions" style="display:none">
             <button onclick="copyFullJSON()" class="btn-action btn-copy">
@@ -310,11 +323,15 @@
         </div>
     </div>
 
-    <div id="video-container">
-        <video id="hls-video" controls></video>
-        <div style="padding: 10px; background: #111; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
-            <small id="video-title" style="color: var(--text-dim)"></small>
-            <button onclick="closeVideo()" style="color: #ff4444; background: transparent; border:none; cursor:pointer">Cerrar</button>
+    <div id="player-container">
+        <div id="player-loading" class="loader" style="display:none; background:#000; padding:40px">
+            <i data-lucide="loader-2" class="spin"></i> Resolviendo reproductor de video...
+        </div>
+        <video id="hls-video" controls style="display:none"></video>
+        <iframe id="embed-iframe" style="display:none" allowfullscreen></iframe>
+        <div style="padding: 10px 15px; background: #111; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+            <small id="video-title" style="color: var(--accent); font-weight: bold;"></small>
+            <button onclick="closeVideo()" style="color: #ff4444; background: transparent; border:none; cursor:pointer; font-weight:bold">Cerrar Player</button>
         </div>
     </div>
 
@@ -334,7 +351,10 @@ const genreSelect = document.getElementById('genre-select');
 const searchInput = document.getElementById('anime-search');
 const clearSearchBtn = document.getElementById('clear-search');
 const hlsVideo = document.getElementById('hls-video');
-const videoContainer = document.getElementById('video-container');
+const embedIframe = document.getElementById('embed-iframe');
+const playerContainer = document.getElementById('player-container');
+const playerLoading = document.getElementById('player-loading');
+const videoTitle = document.getElementById('video-title');
 const dynamicActions = document.getElementById('dynamic-actions');
 
 function refreshIcons() { lucide.createIcons(); }
@@ -404,7 +424,7 @@ async function cargarDirectorio(pagina = 1) {
 }
 
 async function cargarAnime(slug) {
-    infoOutput.innerHTML = '// Extrayendo información...';
+    infoOutput.innerHTML = '// Extrayendo información en tiempo real con JavaScript...';
     dynamicActions.innerHTML = '';
     document.getElementById('global-actions').style.display = 'none';
     closeVideo();
@@ -416,20 +436,17 @@ async function cargarAnime(slug) {
         const jCaps = await JKAnimeScraper.getCapitulosRaw(slug, jMeta.data.id, jMeta.data.ultimo_capitulo);
 
         const capsFinal = [];
-        const activeProxyBase = (typeof CONFIG !== 'undefined' && CONFIG.proxyUrl) ? CONFIG.proxyUrl : '';
-
         (jCaps.links || []).forEach(ep => {
-            const proxyUrl = JKAnimeScraper.buildProxyUrl(ep.url, activeProxyBase);
-            capsFinal.push({ cap: ep.cap, url: proxyUrl });
+            capsFinal.push({ cap: ep.cap, url: ep.url });
             
             const btnGroup = document.createElement('div');
             btnGroup.className = 'actions-overlay';
             btnGroup.innerHTML = `
-                <button class="btn-action btn-play" onclick="playVideo('${proxyUrl}', '${jMeta.data.titulo} - Cap ${ep.cap}')">
+                <button class="btn-action btn-play" onclick="playEpisode('${ep.url}', '${jMeta.data.titulo} - Cap ${ep.cap}')">
                     <i data-lucide="play" style="width:12px"></i> Cap ${ep.cap}
                 </button>
-                <button class="btn-action btn-copy" onclick="copyToClipboard('${proxyUrl}')">
-                    <i data-lucide="link" style="width:12px"></i> Proxy Link
+                <button class="btn-action btn-copy" onclick="copyToClipboard('${ep.url}')">
+                    <i data-lucide="link" style="width:12px"></i> Link Cap
                 </button>
             `;
             dynamicActions.appendChild(btnGroup);
@@ -442,30 +459,54 @@ async function cargarAnime(slug) {
     } catch(e){ infoOutput.innerHTML = '// Error al procesar anime'; }
 }
 
-function playVideo(url, label) {
-    videoContainer.style.display = 'block';
-    document.getElementById('video-title').textContent = label;
-    videoContainer.scrollIntoView({ behavior: 'smooth' });
+async function playEpisode(epUrl, label) {
+    playerContainer.style.display = 'block';
+    playerLoading.style.display = 'flex';
+    hlsVideo.style.display = 'none';
+    embedIframe.style.display = 'none';
+    videoTitle.textContent = label;
+    playerContainer.scrollIntoView({ behavior: 'smooth' });
 
     if (currentHls) {
         currentHls.destroy();
         currentHls = null;
     }
 
-    if (Hls.isSupported()) {
-        currentHls = new Hls();
-        currentHls.loadSource(url);
-        currentHls.attachMedia(hlsVideo);
-        currentHls.on(Hls.Events.MANIFEST_PARSED, () => hlsVideo.play());
-    } else if (hlsVideo.canPlayType('application/vnd.apple.mpegurl')) {
-        hlsVideo.src = url;
-        hlsVideo.play();
+    try {
+        const res = await JKAnimeScraper.resolveEpisodeStream(epUrl);
+        playerLoading.style.display = 'none';
+
+        if (res.success && res.data.m3u8_streams.length > 0) {
+            // Reproducción directa M3U8 vía HLS.js
+            hlsVideo.style.display = 'block';
+            const m3u8Url = res.data.m3u8_streams[0];
+            
+            if (Hls.isSupported()) {
+                currentHls = new Hls();
+                currentHls.loadSource(m3u8Url);
+                currentHls.attachMedia(hlsVideo);
+                currentHls.on(Hls.Events.MANIFEST_PARSED, () => hlsVideo.play());
+            } else if (hlsVideo.canPlayType('application/vnd.apple.mpegurl')) {
+                hlsVideo.src = m3u8Url;
+                hlsVideo.play();
+            }
+        } else if (res.success && res.data.iframes.length > 0) {
+            // Reproducción nativa en Iframe (jkplayer/um permite iframing)
+            embedIframe.style.display = 'block';
+            embedIframe.src = res.data.iframes[0];
+        } else {
+            videoTitle.textContent = label + ' (No se encontró stream ejecutable)';
+        }
+    } catch (e) {
+        playerLoading.style.display = 'none';
+        videoTitle.textContent = label + ' (Error al resolver reproductor)';
     }
 }
 
 function closeVideo() { 
-    videoContainer.style.display='none'; 
+    playerContainer.style.display='none'; 
     hlsVideo.pause(); 
+    embedIframe.src = '';
     if (currentHls) {
         currentHls.destroy();
         currentHls = null;
@@ -498,12 +539,16 @@ function changePage(d) {
 }
 
 function copyToClipboard(text) {
-    const el = document.createElement('textarea');
-    el.value = text;
-    document.body.appendChild(el);
-    el.select();
-    document.execCommand('copy');
-    document.body.removeChild(el);
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text);
+    } else {
+        const el = document.createElement('textarea');
+        el.value = text;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+    }
     const t = document.getElementById('toast');
     t.style.display = 'block';
     setTimeout(() => { t.style.display = 'none'; }, 2000);
