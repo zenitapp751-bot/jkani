@@ -137,7 +137,7 @@
         <i data-lucide="loader-2" class="spin" style="width:36px; height:36px"></i>
         <span>Iniciando reproductor de video HTML5...</span>
     </div>
-    <video id="hls-video" controls style="display:none"></video>
+    <video id="hls-video" controls playsinline style="display:none"></video>
     <iframe id="embed-iframe" style="display:none" allowfullscreen></iframe>
 </div>
 
@@ -240,12 +240,14 @@ function switchServer(srv) {
     if (srv.type === 'hls') {
         iframe.style.display = 'none';
         iframe.src = '';
-        video.style.display = 'none';
+        video.style.display = 'block';
 
         if (Hls.isSupported()) {
             currentHls = new Hls({
                 enableWorker: true,
-                lowLatencyMode: false
+                lowLatencyMode: false,
+                maxBufferLength: 30,
+                maxMaxBufferLength: 600
             });
 
             currentHls.loadSource(srv.url);
@@ -253,26 +255,39 @@ function switchServer(srv) {
 
             currentHls.on(Hls.Events.MANIFEST_PARSED, () => {
                 loader.style.display = 'none';
-                video.style.display = 'block';
-                video.play().catch(() => {});
+                video.play().catch(() => {
+                    // Si el navegador bloquea autoplay sin silenciar, no marcar fatal
+                });
             });
 
             currentHls.on(Hls.Events.ERROR, (event, data) => {
+                console.warn("HLS.js Warning/Error:", data);
                 if (data.fatal) {
-                    if (activeServerIndex + 1 < serversList.length) {
-                        activeServerIndex++;
-                        const btns = document.querySelectorAll('.server-btn');
-                        btns.forEach((b, idx) => b.classList.toggle('active', idx === activeServerIndex));
-                        switchServer(serversList[activeServerIndex]);
-                    } else {
-                        loader.style.display = 'flex';
-                        loader.innerHTML = '<span style="color:#ff4444">Error al cargar manifest HLS. Selecciona otro servidor arriba.</span>';
+                    switch (data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            console.log("Recuperando error de red HLS...");
+                            currentHls.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            console.log("Recuperando error de media HLS...");
+                            currentHls.recoverMediaError();
+                            break;
+                        default:
+                            if (activeServerIndex + 1 < serversList.length) {
+                                activeServerIndex++;
+                                const btns = document.querySelectorAll('.server-btn');
+                                btns.forEach((b, idx) => b.classList.toggle('active', idx === activeServerIndex));
+                                switchServer(serversList[activeServerIndex]);
+                            } else {
+                                loader.style.display = 'flex';
+                                loader.innerHTML = `<span style="color:#ff4444">Error HLS (${data.details}). Selecciona otro servidor arriba.</span>`;
+                            }
+                            break;
                     }
                 }
             });
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             loader.style.display = 'none';
-            video.style.display = 'block';
             video.src = srv.url;
             video.play().catch(() => {});
         }
