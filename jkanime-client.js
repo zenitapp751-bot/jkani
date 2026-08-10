@@ -1,11 +1,11 @@
 /**
  * JKAnime Client-Side Scraper Engine
- * Pure HTML5 & JavaScript (ES6+) implementation without PHP dependencies.
+ * Pure HTML5 & JavaScript (ES6+) implementation matching PHP backend structure.
  * Location: /scrappers/jkanime/jkanime-client.js
  */
 
 const JKAnimeScraper = (function () {
-    // Lista de CORS Proxies públicos con fallback automático
+    // Lista de CORS Proxies públicos con fallback automático para scraping HTML
     const DEFAULT_PROXIES = [
         (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
         (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
@@ -17,7 +17,7 @@ const JKAnimeScraper = (function () {
     let activeProxyIndex = 0;
 
     /**
-     * Configurar un proxy personalizado opcional (ej: https://mi-proxy.com/?url=)
+     * Configurar un proxy personalizado opcional para solicitudes HTML
      */
     function setCustomProxy(proxyUrl) {
         customProxy = proxyUrl ? (url) => proxyUrl.includes('{url}') ? proxyUrl.replace('{url}', encodeURIComponent(url)) : `${proxyUrl}${encodeURIComponent(url)}` : null;
@@ -30,7 +30,6 @@ const JKAnimeScraper = (function () {
         const proxiesToTry = [];
         if (customProxy) proxiesToTry.push(customProxy);
         
-        // Agregar proxies por defecto ordenados empezando por el activo actualmente
         for (let i = 0; i < DEFAULT_PROXIES.length; i++) {
             const idx = (activeProxyIndex + i) % DEFAULT_PROXIES.length;
             proxiesToTry.push(DEFAULT_PROXIES[idx]);
@@ -56,7 +55,6 @@ const JKAnimeScraper = (function () {
                 if (response.ok) {
                     const text = await response.text();
                     if (text && text.trim().length > 0) {
-                        // Guardar índice de proxy funcional para futuras peticiones
                         if (!customProxy && i < DEFAULT_PROXIES.length) {
                             activeProxyIndex = (activeProxyIndex + i) % DEFAULT_PROXIES.length;
                         }
@@ -65,11 +63,26 @@ const JKAnimeScraper = (function () {
                 }
             } catch (err) {
                 lastError = err;
-                console.warn(`Proxy ${i + 1}/${proxiesToTry.length} falló para: ${targetUrl}. Reintentando con siguiente proxy...`);
             }
         }
 
-        throw new Error(`Error en proxyFetch tras reintentar con todos los proxies: ${lastError ? lastError.message : 'Respuesta vacía o error de red'}`);
+        throw new Error(`Error en proxyFetch tras reintentar con todos los proxies: ${lastError ? lastError.message : 'Error de red'}`);
+    }
+
+    /**
+     * Construir enlace de Proxy PHP HLS para reproducción en HLS.js
+     */
+    function buildProxyUrl(rawUrl, proxyPhpBase = '') {
+        let base = proxyPhpBase;
+        if (!base) {
+            if (typeof window !== 'undefined' && window.location && window.location.protocol.startsWith('http')) {
+                const loc = window.location.href.split('?')[0];
+                base = loc.substring(0, loc.lastIndexOf('/')) + '/proxy.php?url=';
+            } else {
+                base = 'https://over.xzod.cloud/scrappers/jkanime/proxy.php?url=';
+            }
+        }
+        return `${base}${encodeURIComponent(rawUrl)}`;
     }
 
     /**
@@ -85,7 +98,7 @@ const JKAnimeScraper = (function () {
     }
 
     /**
-     * OBTENER LISTA DE GÉNEROS
+     * OBTENER LISTA DE GÉNEROS (Equivalente a generos.php)
      */
     async function getGeneros() {
         try {
@@ -113,13 +126,12 @@ const JKAnimeScraper = (function () {
 
             return { success: true, generos: generos };
         } catch (e) {
-            console.error('Error cargando géneros:', e);
             return { success: false, generos: [], error: e.message };
         }
     }
 
     /**
-     * OBTENER DIRECTORIO DE ANIMES (Paginado / Filtrado por género)
+     * OBTENER DIRECTORIO DE ANIMES (Equivalente a directorio.php)
      */
     async function getDirectorio(pagina = 1, genero = '') {
         try {
@@ -136,7 +148,6 @@ const JKAnimeScraper = (function () {
                 animes: []
             };
 
-            // Extraer JSON var animes = {...};
             const matchData = html.match(/var\s+animes\s*=\s*(\{.*?\});/s);
             if (matchData && matchData[1]) {
                 try {
@@ -161,12 +172,9 @@ const JKAnimeScraper = (function () {
                             });
                         });
                     }
-                } catch (jsonErr) {
-                    console.error('Error parseando JSON animes:', jsonErr);
-                }
+                } catch (jsonErr) {}
             }
 
-            // Determinar total de páginas
             const pagesMatches = [...html.matchAll(/[?&]p=(\d+)/g)];
             if (pagesMatches.length > 0) {
                 const maxPage = Math.max(...pagesMatches.map(m => parseInt(m[1])));
@@ -175,7 +183,6 @@ const JKAnimeScraper = (function () {
 
             return { success: true, ...res };
         } catch (e) {
-            console.error('Error cargando directorio:', e);
             return {
                 success: false,
                 pagina_actual: pagina,
@@ -187,7 +194,7 @@ const JKAnimeScraper = (function () {
     }
 
     /**
-     * BUSCADOR DE ANIMES
+     * BUSCADOR DE ANIMES (Equivalente a apibuscador.php)
      */
     async function buscarAnime(query) {
         if (!query || !query.trim()) {
@@ -196,7 +203,6 @@ const JKAnimeScraper = (function () {
         const q = query.trim();
 
         try {
-            // Método A: Búsqueda vía POST /ajax_search
             const homeHtml = await proxyFetch('https://jkanime.net/');
             const tokenMatch = homeHtml.match(/<meta name="csrf-token" content="([^"]+)">/);
             const token = tokenMatch ? tokenMatch[1] : null;
@@ -231,12 +237,9 @@ const JKAnimeScraper = (function () {
 
                         return { success: true, query: q, total: results.length, results: results };
                     }
-                } catch (postErr) {
-                    console.warn('POST ajax_search falló, probando fallback HTML search...');
-                }
+                } catch (postErr) {}
             }
 
-            // Método B Fallback: Petición GET a https://jkanime.net/buscar?q=...
             const searchHtml = await proxyFetch(`https://jkanime.net/buscar/${encodeURIComponent(q)}/1/`);
             const parser = new DOMParser();
             const doc = parser.parseFromString(searchHtml, 'text/html');
@@ -264,13 +267,12 @@ const JKAnimeScraper = (function () {
 
             return { success: true, query: q, total: results.length, results: results };
         } catch (e) {
-            console.error('Error buscando anime:', e);
             return { success: false, query: q, total: 0, results: [], error: e.message };
         }
     }
 
     /**
-     * OBTENER DETALLE E INFORMACIÓN COMPLETA DE UN ANIME
+     * OBTENER FICHA TÉCNICA Y METADATOS (Equivalente a testcap_v2.php)
      */
     async function getAnimeInfo(slug) {
         if (!slug) return { success: false, error: "Slug requerido" };
@@ -290,19 +292,17 @@ const JKAnimeScraper = (function () {
                 votos: null,
                 ultimo_capitulo: null,
                 estadisticas: { mirando: 0, visto: 0, por_ver: 0 },
+                titulos_alternativos: [],
                 trailer: { id_yt: null, url: null },
                 relacionados: []
             };
 
-            // ID del Anime
             const animeIdMatch = html.match(/data-anime="(\d+)"/);
             if (animeIdMatch) info.id = animeIdMatch[1];
 
-            // Poster
             const posterEl = doc.querySelector('.anime_pic.pc img, .movpic img');
             if (posterEl) info.poster = posterEl.src;
 
-            // Título y Subtítulo
             const h3El = doc.querySelector('h3');
             const spanEl = doc.querySelector('h3 + span, .anime_info span');
 
@@ -312,15 +312,12 @@ const JKAnimeScraper = (function () {
             info.titulo = limpiarSEO(rawH3) || slug.replace(/-/g, ' ');
             info.subtitulo = (rawSpan && rawSpan !== rawH3 && !rawSpan.toLowerCase().includes('emision')) ? limpiarSEO(rawSpan) : '';
 
-            // Sinopsis
             const sinopsisEl = doc.querySelector('.scroll, .sinopsis');
             if (sinopsisEl) info.sinopsis = sinopsisEl.textContent.trim();
 
-            // Votos
             const votosEl = doc.querySelector('.vot');
             if (votosEl) info.votos = votosEl.textContent.trim();
 
-            // Último episodio (#uep)
             const uepEl = doc.querySelector('#uep, a[href*="/' + slug + '/"]');
             if (uepEl) {
                 const uepHref = uepEl.getAttribute('href') || uepEl.href || '';
@@ -330,7 +327,6 @@ const JKAnimeScraper = (function () {
                 }
             }
 
-            // Trailer YouTube
             const ytEl = doc.querySelector('[data-yt]');
             if (ytEl) {
                 const ytId = ytEl.getAttribute('data-yt');
@@ -338,7 +334,6 @@ const JKAnimeScraper = (function () {
                 info.trailer.url = `https://www.youtube.com/watch?v=${ytId}`;
             }
 
-            // Animes Relacionados
             const relElements = doc.querySelectorAll('#aditional');
             relElements.forEach(el => {
                 const typeText = el.textContent.trim();
@@ -350,7 +345,7 @@ const JKAnimeScraper = (function () {
                         tipo: typeText,
                         titulo: link.textContent.trim(),
                         slug: relSlug,
-                        url: `https://jkanime.net/${relSlug}/`,
+                        url: link.href,
                         poster: `https://cdn.jkdesa.com/assets/images/animes/image/${relSlug}.jpg`
                     });
                 }
@@ -358,21 +353,19 @@ const JKAnimeScraper = (function () {
 
             return { success: true, data: info };
         } catch (e) {
-            console.error('Error extrayendo info del anime:', e);
             return { success: false, error: e.message };
         }
     }
 
     /**
-     * OBTENER LISTA DE CAPÍTULOS
+     * OBTENER LISTA DE ENLACES RAW DE CAPÍTULOS (Equivalente a testcap.php)
      */
-    async function getCapitulos(slug, animeId = null, totalCapsIn = null) {
+    async function getCapitulosRaw(slug, animeId = null, totalCapsIn = null) {
         if (!slug) return { success: false, error: "Slug requerido" };
 
         try {
             let totalCapitulos = totalCapsIn;
 
-            // Si no tenemos el número total de capítulos, obtenemos el HTML del anime
             if (!totalCapitulos) {
                 const infoRes = await getAnimeInfo(slug);
                 if (infoRes.success && infoRes.data.ultimo_capitulo) {
@@ -380,7 +373,6 @@ const JKAnimeScraper = (function () {
                 }
             }
 
-            // Si se conoce el último número de capítulo, generamos la lista al instante sin sobrecargar de peticiones HTTP
             if (totalCapitulos && totalCapitulos > 0) {
                 const links = [];
                 for (let i = 1; i <= totalCapitulos; i++) {
@@ -393,11 +385,11 @@ const JKAnimeScraper = (function () {
                 return {
                     success: true,
                     total_total: links.length,
+                    paginas_recorridas: 1,
                     links: links
                 };
             }
 
-            // Fallback: Consultar API de episodios AJAX si no se pudo determinar el último episodio en HTML
             if (animeId) {
                 const html = await proxyFetch(`https://jkanime.net/${slug}/`);
                 const tokenMatch = html.match(/<meta name="csrf-token" content="([^"]+)">/);
@@ -443,30 +435,31 @@ const JKAnimeScraper = (function () {
                         return {
                             success: true,
                             total_total: allLinks.length,
+                            paginas_recorridas: lastPage,
                             links: allLinks
                         };
                     }
                 }
             }
 
-            // Fallback predeterminado mínimo si no hay capítulos reportados
             return {
                 success: true,
                 total_total: 1,
+                paginas_recorridas: 1,
                 links: [{ cap: 1, url: `https://jkanime.net/${slug}/1/` }]
             };
         } catch (e) {
-            console.error('Error extrayendo capítulos:', e);
             return { success: false, error: e.message, links: [] };
         }
     }
 
     return {
         setCustomProxy,
+        buildProxyUrl,
         getGeneros,
         getDirectorio,
         buscarAnime,
         getAnimeInfo,
-        getCapitulos
+        getCapitulosRaw
     };
 })();
