@@ -135,7 +135,7 @@
 <div class="player-viewport">
     <div id="loader" class="loader-overlay">
         <i data-lucide="loader-2" class="spin" style="width:36px; height:36px"></i>
-        <span>Iniciando reproductor de video HTML5...</span>
+        <span>Resolviendo reproductor de video en cliente JS...</span>
     </div>
     <video id="hls-video" controls style="display:none"></video>
     <iframe id="embed-iframe" style="display:none" allowfullscreen></iframe>
@@ -174,36 +174,38 @@ async function initProxyPlayer() {
 
         serversList = [];
 
-        // Servidor 1: HLS HD Direct Proxy
-        const primaryHlsUrl = JKAnimeScraper.buildProxyUrl(cleanUrl);
-        serversList.push({
-            name: 'Servidor 1: HLS HD (Principal)',
-            type: 'hls',
-            url: primaryHlsUrl
-        });
+        // Extraer servidores y m3u8 directamente desde el cliente
+        const streamRes = await JKAnimeScraper.resolveEpisodeStream(cleanUrl);
 
-        // Servidor 2: HLS Backup Proxy
-        if (typeof CONFIG !== 'undefined' && CONFIG.fallbackProxyUrl) {
-            serversList.push({
-                name: 'Servidor 2: HLS Backup',
-                type: 'hls',
-                url: `${CONFIG.fallbackProxyUrl}${encodeURIComponent(cleanUrl)}`
+        if (streamRes.success && streamRes.data.m3u8_streams.length > 0) {
+            streamRes.data.m3u8_streams.forEach((m3u8Url, idx) => {
+                serversList.push({
+                    name: `Servidor Directo HD ${idx + 1} (HLS)`,
+                    type: 'hls',
+                    url: m3u8Url
+                });
             });
         }
 
-        // Intentar obtener iframes embebidos nativos en background
-        try {
-            const streamRes = await JKAnimeScraper.resolveEpisodeStream(cleanUrl);
-            if (streamRes.success && streamRes.data.iframes.length > 0) {
-                streamRes.data.iframes.forEach((iframeUrl, idx) => {
-                    serversList.push({
-                        name: `Servidor Embebido ${idx + 1}`,
-                        type: 'iframe',
-                        url: iframeUrl
-                    });
+        if (streamRes.success && streamRes.data.iframes.length > 0) {
+            streamRes.data.iframes.forEach((iframeUrl, idx) => {
+                let name = `Servidor Embebido ${idx + 1}`;
+                if (iframeUrl.includes('um')) name = `Servidor UM ${idx + 1}`;
+                else if (iframeUrl.includes('c1')) name = `Servidor C1 ${idx + 1}`;
+                
+                serversList.push({
+                    name: name,
+                    type: 'iframe',
+                    url: iframeUrl
                 });
-            }
-        } catch (e) {}
+            });
+        }
+
+        if (serversList.length === 0) {
+            loader.style.display = 'flex';
+            loader.innerHTML = '<span style="color:#ff4444">No se encontraron servidores ejecutables para este episodio</span>';
+            return;
+        }
 
         // Renderizar botones de servidores
         serverList.innerHTML = '';

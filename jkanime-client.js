@@ -1,5 +1,5 @@
 /**
- * JKAnime Client-Side & Hybrid Scraper Engine
+ * JKAnime Client-Side Scraper Engine (Zero Zenit Server Dependencies)
  * Designed for GitHub Pages: https://zenitapp751-bot.github.io/jkani/scrapper.html
  * Location: /scrappers/jkanime/jkanime-client.js
  */
@@ -17,9 +17,9 @@ const JKAnimeScraper = (function () {
             return CONFIG.corsProxies.map(p => (url) => p.includes('{url}') ? p.replace('{url}', encodeURIComponent(url)) : `${p}${encodeURIComponent(url)}`);
         }
         return [
-            (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-            (url) => `https://thingproxy.freeboard.io/fetch/${url}`,
-            (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+            (url) => `https://over.xzod.cloud/scrappers/jkanime/proxy.php?mode=raw&url=${encodeURIComponent(url)}`,
+            (url) => `https://cors.eu.org/${url}`,
+            (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
         ];
     };
 
@@ -30,6 +30,9 @@ const JKAnimeScraper = (function () {
         customProxy = proxyUrl ? (url) => proxyUrl.includes('{url}') ? proxyUrl.replace('{url}', encodeURIComponent(url)) : `${proxyUrl}${encodeURIComponent(url)}` : null;
     }
 
+    /**
+     * Petición HTTP robusta con auto-failover entre proxies CORS
+     */
     async function proxyFetch(targetUrl, options = {}) {
         const defaultProxies = getCorsProxies();
         const proxiesToTry = [];
@@ -58,7 +61,14 @@ const JKAnimeScraper = (function () {
                 clearTimeout(timeoutId);
 
                 if (response.ok) {
-                    const text = await response.text();
+                    let text = await response.text();
+                    if (proxiedUrl.includes('allorigins.win/get')) {
+                        try {
+                            const parsed = JSON.parse(text);
+                            text = parsed.contents || text;
+                        } catch(e) {}
+                    }
+
                     if (text && text.trim().length > 0 && !text.includes('500 Internal Server Error') && !text.includes('error code: 522')) {
                         if (!customProxy && i < defaultProxies.length) {
                             activeProxyIndex = (activeProxyIndex + i) % defaultProxies.length;
@@ -74,18 +84,19 @@ const JKAnimeScraper = (function () {
         throw new Error(`Error en proxyFetch tras reintentar con todos los proxies: ${lastError ? lastError.message : 'Error de red'}`);
     }
 
-    function buildProxyUrl(rawUrl, proxyPhpBase = '') {
-        let base = proxyPhpBase;
-        if (!base) {
-            if (typeof CONFIG !== 'undefined' && CONFIG.proxyUrl) {
-                base = CONFIG.proxyUrl;
-            } else if (typeof window !== 'undefined' && window.CONFIG && window.CONFIG.proxyUrl) {
-                base = window.CONFIG.proxyUrl;
-            } else {
-                base = 'https://cris.crispdev.online/zenit_proxy_m3u8.php?url=';
-            }
+    /**
+     * Construir enlace de Proxy HTML para reproducción en HTML5 / GitHub Pages (Sin servidor Zenit)
+     */
+    function buildProxyUrl(rawUrl, proxyHtmlBase = '') {
+        if (proxyHtmlBase) {
+            return `${proxyHtmlBase}${encodeURIComponent(rawUrl)}`;
         }
-        return `${base}${encodeURIComponent(rawUrl)}`;
+        if (typeof window !== 'undefined' && window.location && window.location.protocol.startsWith('http')) {
+            const loc = window.location.href.split('?')[0];
+            const dir = loc.substring(0, loc.lastIndexOf('/'));
+            return `${dir}/proxy.html?url=${encodeURIComponent(rawUrl)}`;
+        }
+        return `./proxy.html?url=${encodeURIComponent(rawUrl)}`;
     }
 
     function limpiarSEO(texto) {
@@ -463,7 +474,7 @@ const JKAnimeScraper = (function () {
     }
 
     /**
-     * EXTRAER IFRAMES DE EMBED Y STREAMS M3U8 DE UN EPISODIO
+     * EXTRAER IFRAMES DE EMBED Y STREAMS M3U8 DIRECTOS (100% Client-Side JS)
      */
     async function resolveEpisodeStream(episodeUrl) {
         try {

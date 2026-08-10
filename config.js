@@ -1,14 +1,15 @@
 /**
- * Configuración Global para JKAnime Scraper (GitHub Pages & Web)
+ * Configuración Global 100% Pure Client-Side HTML5 & JS (Sin servidor Zenit)
  * GitHub Pages URL: https://zenitapp751-bot.github.io/jkani/scrapper.html
  */
 const CONFIG = {
-    // API Server Backend de alta velocidad con soporte CORS (access-control-allow-origin: *)
+    // API Server Backend de datos (over.xzod.cloud)
     apiBaseUrl: "https://over.xzod.cloud/scrappers/jkanime/",
 
-    // URL Principal del Proxy M3U8/HLS para resolución y reproducción de episodios
-    proxyUrl: "https://cris.crispdev.online/zenit_proxy_m3u8.php?url=",
-
-    // Proxy M3U8 de respaldo
-    fallbackProxyUrl: "https://over.xzod.cloud/scrappers/jkanime/proxy.php?url="
+    // Proxies CORS para extracción de datos en cliente JS
+    corsProxies: [
+        "https://over.xzod.cloud/scrappers/jkanime/proxy.php?mode=raw&url=",
+        "https://cors.eu.org/",
+        "https://api.codetabs.com/v1/proxy?quest="
+    ]
 };
