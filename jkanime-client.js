@@ -1,10 +1,17 @@
 /**
- * JKAnime Client-Side Scraper Engine (100% Pure HTML5 & JS - Zero PHP Dependencies)
+ * JKAnime Client-Side & Hybrid Scraper Engine
  * Designed for GitHub Pages: https://zenitapp751-bot.github.io/jkani/scrapper.html
  * Location: /scrappers/jkanime/jkanime-client.js
  */
 
 const JKAnimeScraper = (function () {
+    const getApiBaseUrl = () => {
+        if (typeof CONFIG !== 'undefined' && CONFIG.apiBaseUrl) {
+            return CONFIG.apiBaseUrl.replace(/\/+$/, '') + '/';
+        }
+        return 'https://over.xzod.cloud/scrappers/jkanime/';
+    };
+
     const getCorsProxies = () => {
         if (typeof CONFIG !== 'undefined' && Array.isArray(CONFIG.corsProxies) && CONFIG.corsProxies.length > 0) {
             return CONFIG.corsProxies.map(p => (url) => p.includes('{url}') ? p.replace('{url}', encodeURIComponent(url)) : `${p}${encodeURIComponent(url)}`);
@@ -95,9 +102,21 @@ const JKAnimeScraper = (function () {
     }
 
     /**
-     * OBTENER LISTA DE GÉNEROS (100% Client-Side JS)
+     * OBTENER LISTA DE GÉNEROS (API -> Fallback Client-Side)
      */
     async function getGeneros() {
+        const apiBase = getApiBaseUrl();
+        try {
+            const res = await fetch(`${apiBase}generos.php`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.success && Array.isArray(data.generos)) {
+                    return data;
+                }
+            }
+        } catch (apiErr) {}
+
+        // Fallback Client-Side
         try {
             const html = await proxyFetch('https://jkanime.net/directorio/');
             const parser = new DOMParser();
@@ -128,11 +147,26 @@ const JKAnimeScraper = (function () {
     }
 
     /**
-     * OBTENER DIRECTORIO DE ANIMES (100% Client-Side JS)
+     * OBTENER DIRECTORIO DE ANIMES (API -> Fallback Client-Side)
      */
     async function getDirectorio(pagina = 1, genero = '') {
         const pageNum = Math.max(1, parseInt(pagina) || 1);
+        const apiBase = getApiBaseUrl();
 
+        try {
+            let url = `${apiBase}directorio.php?p=${pageNum}`;
+            if (genero && genero.trim() !== '') url += `&genero=${encodeURIComponent(genero)}`;
+
+            const res = await fetch(url);
+            if (res.ok) {
+                const data = await res.json();
+                if (data && Array.isArray(data.animes)) {
+                    return { success: true, ...data };
+                }
+            }
+        } catch (apiErr) {}
+
+        // Fallback Client-Side
         try {
             let targetUrl = `https://jkanime.net/directorio/?p=${pageNum}`;
             if (genero && genero.trim() !== '') {
@@ -192,14 +226,26 @@ const JKAnimeScraper = (function () {
     }
 
     /**
-     * BUSCADOR DE ANIMES (100% Client-Side JS)
+     * BUSCADOR DE ANIMES (API -> Fallback Client-Side)
      */
     async function buscarAnime(query) {
         if (!query || !query.trim()) {
             return { success: false, error: "Consulta de búsqueda vacía" };
         }
         const q = query.trim();
+        const apiBase = getApiBaseUrl();
 
+        try {
+            const res = await fetch(`${apiBase}apibuscador.php?q=${encodeURIComponent(q)}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.success && Array.isArray(data.results)) {
+                    return data;
+                }
+            }
+        } catch (apiErr) {}
+
+        // Fallback Client-Side
         try {
             const homeHtml = await proxyFetch('https://jkanime.net/');
             const tokenMatch = homeHtml.match(/<meta name="csrf-token" content="([^"]+)">/);
@@ -270,11 +316,23 @@ const JKAnimeScraper = (function () {
     }
 
     /**
-     * OBTENER FICHA TÉCNICA Y METADATOS (100% Client-Side JS)
+     * OBTENER FICHA TÉCNICA Y METADATOS (API -> Fallback Client-Side)
      */
     async function getAnimeInfo(slug) {
         if (!slug) return { success: false, error: "Slug requerido" };
+        const apiBase = getApiBaseUrl();
 
+        try {
+            const res = await fetch(`${apiBase}testcap_v2.php?slug=${encodeURIComponent(slug)}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.success && data.data) {
+                    return data;
+                }
+            }
+        } catch (apiErr) {}
+
+        // Fallback Client-Side
         try {
             const html = await proxyFetch(`https://jkanime.net/${slug}/`);
             const parser = new DOMParser();
@@ -356,11 +414,25 @@ const JKAnimeScraper = (function () {
     }
 
     /**
-     * OBTENER LISTA DE ENLACES RAW DE CAPÍTULOS (100% Client-Side JS)
+     * OBTENER LISTA DE ENLACES RAW DE CAPÍTULOS (API -> Fallback Client-Side)
      */
     async function getCapitulosRaw(slug, animeId = null, totalCapsIn = null) {
         if (!slug) return { success: false, error: "Slug requerido" };
+        const apiBase = getApiBaseUrl();
 
+        if (animeId) {
+            try {
+                const res = await fetch(`${apiBase}testcap.php?id=${encodeURIComponent(animeId)}&slug=${encodeURIComponent(slug)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.success && Array.isArray(data.links)) {
+                        return data;
+                    }
+                }
+            } catch (apiErr) {}
+        }
+
+        // Fallback Client-Side
         try {
             let totalCapitulos = totalCapsIn;
 
@@ -400,7 +472,7 @@ const JKAnimeScraper = (function () {
     }
 
     /**
-     * EXTRAER IFRAMES DE EMBED Y STREAMS M3U8 DE UN EPISODIO (100% Client-Side JS)
+     * EXTRAER IFRAMES DE EMBED Y STREAMS M3U8 DE UN EPISODIO
      */
     async function resolveEpisodeStream(episodeUrl) {
         try {
@@ -422,7 +494,6 @@ const JKAnimeScraper = (function () {
                 }
             });
 
-            // Extraer enlaces directos si no estaban en tags <iframe>
             const matchesRegex = html.match(/https?:\/\/[^\s"'<>]+\/(?:jkplayer|jkokru|c1|um)[^\s"'<>]*/gi);
             if (matchesRegex) {
                 matchesRegex.forEach(u => {
@@ -435,7 +506,6 @@ const JKAnimeScraper = (function () {
                 m3u8_streams: []
             };
 
-            // Intentar resolver m3u8 desde los iframes
             for (const iframeUrl of iframesRaw) {
                 try {
                     const iframeHtml = await proxyFetch(iframeUrl);
@@ -445,7 +515,6 @@ const JKAnimeScraper = (function () {
                             streamResults.m3u8_streams.push(m3u8Match[1]);
                         }
                     } else {
-                        // Buscar atob base64 decodificable
                         const b64Matches = iframeHtml.match(/atob\s*\(\s*["']([A-Za-z0-9+/=]+)["']/g);
                         if (b64Matches) {
                             b64Matches.forEach(b64 => {
@@ -473,6 +542,7 @@ const JKAnimeScraper = (function () {
 
     return {
         setCustomProxy,
+        buildProxyUrl,
         getGeneros,
         getDirectorio,
         buscarAnime,
