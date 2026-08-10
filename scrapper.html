@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JKAnime Scrapper (Pure JS & HTML5)</title>
+    <title>JKAnime Scrapper (HTML5 & JS)</title>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- HLS.js Library -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <!-- Configuración Global (config.js) -->
     <script src="config.js"></script>
-    <!-- JKAnime Scraper Engine (Pure Client-Side JS) -->
+    <!-- JKAnime Scraper Engine -->
     <script src="jkanime-client.js"></script>
     <style>
         :root {
@@ -263,6 +263,7 @@
 
         .btn-play { background: #f97a29; color: white; }
         .btn-copy { background: #222; color: var(--accent); border-color: var(--border); }
+        .btn-proxy { background: #111; color: var(--accent); border: 1px solid var(--accent); }
 
         .loader { padding: 20px; text-align: center; color: var(--accent); display: flex; align-items: center; justify-content: center; gap: 10px; }
         .spin { animation: spin 1s linear infinite; }
@@ -325,7 +326,7 @@
 
     <div id="player-container">
         <div id="player-loading" class="loader" style="display:none; background:#000; padding:40px">
-            <i data-lucide="loader-2" class="spin"></i> Resolviendo reproductor de video...
+            <i data-lucide="loader-2" class="spin"></i> Cargando reproductor de video...
         </div>
         <video id="hls-video" controls style="display:none"></video>
         <iframe id="embed-iframe" style="display:none" allowfullscreen></iframe>
@@ -437,16 +438,20 @@ async function cargarAnime(slug) {
 
         const capsFinal = [];
         (jCaps.links || []).forEach(ep => {
-            capsFinal.push({ cap: ep.cap, url: ep.url });
+            const proxyM3u8Url = JKAnimeScraper.buildProxyUrl(ep.url);
+            capsFinal.push({ cap: ep.cap, url: proxyM3u8Url, raw_url: ep.url });
             
             const btnGroup = document.createElement('div');
             btnGroup.className = 'actions-overlay';
             btnGroup.innerHTML = `
                 <button class="btn-action btn-play" onclick="playEpisode('${ep.url}', '${jMeta.data.titulo} - Cap ${ep.cap}')">
-                    <i data-lucide="play" style="width:12px"></i> Cap ${ep.cap}
+                    <i data-lucide="play" style="width:12px"></i> Reproducir Cap ${ep.cap}
                 </button>
-                <button class="btn-action btn-copy" onclick="copyToClipboard('${ep.url}')">
-                    <i data-lucide="link" style="width:12px"></i> Link Cap
+                <button class="btn-action btn-proxy" onclick="openHtmlProxy('${ep.url}')">
+                    <i data-lucide="external-link" style="width:12px"></i> HTML Proxy
+                </button>
+                <button class="btn-action btn-copy" onclick="copyToClipboard('${proxyM3u8Url}')">
+                    <i data-lucide="link" style="width:12px"></i> Copiar M3U8
                 </button>
             `;
             dynamicActions.appendChild(btnGroup);
@@ -457,6 +462,11 @@ async function cargarAnime(slug) {
         document.getElementById('global-actions').style.display = 'block';
         refreshIcons();
     } catch(e){ infoOutput.innerHTML = '// Error al procesar anime'; }
+}
+
+function openHtmlProxy(epUrl) {
+    const htmlProxyUrl = `./proxy.html?url=${encodeURIComponent(epUrl)}`;
+    window.open(htmlProxyUrl, '_blank');
 }
 
 async function playEpisode(epUrl, label) {
@@ -472,34 +482,47 @@ async function playEpisode(epUrl, label) {
         currentHls = null;
     }
 
-    try {
-        const res = await JKAnimeScraper.resolveEpisodeStream(epUrl);
-        playerLoading.style.display = 'none';
+    const proxyStreamUrl = JKAnimeScraper.buildProxyUrl(epUrl);
 
-        if (res.success && res.data.m3u8_streams.length > 0) {
-            // Reproducción directa M3U8 vía HLS.js
+    // Intentar reproducción directa HLS vía Proxy M3U8 de alta definición
+    if (Hls.isSupported()) {
+        currentHls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: false
+        });
+
+        currentHls.loadSource(proxyStreamUrl);
+        currentHls.attachMedia(hlsVideo);
+
+        currentHls.on(Hls.Events.MANIFEST_PARSED, () => {
+            playerLoading.style.display = 'none';
             hlsVideo.style.display = 'block';
-            const m3u8Url = res.data.m3u8_streams[0];
-            
-            if (Hls.isSupported()) {
-                currentHls = new Hls();
-                currentHls.loadSource(m3u8Url);
-                currentHls.attachMedia(hlsVideo);
-                currentHls.on(Hls.Events.MANIFEST_PARSED, () => hlsVideo.play());
-            } else if (hlsVideo.canPlayType('application/vnd.apple.mpegurl')) {
-                hlsVideo.src = m3u8Url;
-                hlsVideo.play();
+            hlsVideo.play().catch(() => {});
+        });
+
+        currentHls.on(Hls.Events.ERROR, async (event, data) => {
+            if (data.fatal) {
+                // Fallback a resolución directa client-side iframe
+                try {
+                    const res = await JKAnimeScraper.resolveEpisodeStream(epUrl);
+                    playerLoading.style.display = 'none';
+                    if (res.success && res.data.iframes.length > 0) {
+                        embedIframe.style.display = 'block';
+                        embedIframe.src = res.data.iframes[0];
+                    } else {
+                        videoTitle.textContent = label + ' (Error de carga HLS / Iframe)';
+                    }
+                } catch (e) {
+                    playerLoading.style.display = 'none';
+                    videoTitle.textContent = label + ' (Error al reproducir)';
+                }
             }
-        } else if (res.success && res.data.iframes.length > 0) {
-            // Reproducción nativa en Iframe (jkplayer/um permite iframing)
-            embedIframe.style.display = 'block';
-            embedIframe.src = res.data.iframes[0];
-        } else {
-            videoTitle.textContent = label + ' (No se encontró stream ejecutable)';
-        }
-    } catch (e) {
+        });
+    } else if (hlsVideo.canPlayType('application/vnd.apple.mpegurl')) {
         playerLoading.style.display = 'none';
-        videoTitle.textContent = label + ' (Error al resolver reproductor)';
+        hlsVideo.style.display = 'block';
+        hlsVideo.src = proxyStreamUrl;
+        hlsVideo.play().catch(() => {});
     }
 }
 
