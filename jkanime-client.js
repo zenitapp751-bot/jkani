@@ -70,6 +70,21 @@ const JKAnimeScraper = (function () {
         throw new Error(`Error en proxyFetch tras reintentar con todos los proxies: ${lastError ? lastError.message : 'Error de red'}`);
     }
 
+    /**
+     * Construir enlace de Proxy HTML para reproducción en HTML5 / GitHub Pages
+     */
+    function buildProxyUrl(rawUrl, proxyHtmlBase = '') {
+        if (proxyHtmlBase) {
+            return `${proxyHtmlBase}${encodeURIComponent(rawUrl)}`;
+        }
+        if (typeof window !== 'undefined' && window.location && window.location.protocol.startsWith('http')) {
+            const loc = window.location.href.split('?')[0];
+            const dir = loc.substring(0, loc.lastIndexOf('/'));
+            return `${dir}/proxy.html?url=${encodeURIComponent(rawUrl)}`;
+        }
+        return `./proxy.html?url=${encodeURIComponent(rawUrl)}`;
+    }
+
     function limpiarSEO(texto) {
         if (!texto) return '';
         let t = texto.replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, '&');

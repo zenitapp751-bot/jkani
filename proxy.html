@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zenit HTML Proxy Player</title>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- HLS.js Library -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <!-- Config & Client Engine -->
+    <script src="config.js"></script>
+    <script src="jkanime-client.js"></script>
+    <style>
+        :root {
+            --accent: #00ff9c;
+            --bg: #070707;
+            --card-bg: #121212;
+            --border: #222222;
+            --text: #ffffff;
+            --text-dim: #888888;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .header {
+            background: #0f0f0f;
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .title-box {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.95rem;
+            font-weight: bold;
+            color: var(--accent);
+        }
+
+        .server-bar {
+            display: flex;
+            gap: 8px;
+            padding: 10px 20px;
+            background: #0a0a0a;
+            border-bottom: 1px solid var(--border);
+            overflow-x: auto;
+        }
+
+        .server-btn {
+            background: #181818;
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .server-btn:hover, .server-btn.active {
+            background: rgba(0, 255, 156, 0.15);
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .player-viewport {
+            flex: 1;
+            position: relative;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        video, iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }
+
+        .loader-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            color: var(--accent);
+            z-index: 10;
+        }
+
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="title-box">
+        <i data-lucide="play-circle"></i>
+        <span id="player-title">Cargando episodio...</span>
+    </div>
+    <div>
+        <a href="scrapper.html" style="color:var(--text-dim); text-decoration:none; font-size:0.8rem; display:flex; align-items:center; gap:5px">
+            <i data-lucide="arrow-left" style="width:14px"></i> Volver al Directorio
+        </a>
+    </div>
+</div>
+
+<div class="server-bar" id="server-list">
+    <!-- Botones de Servidores creados dinámicamente -->
+</div>
+
+<div class="player-viewport">
+    <div id="loader" class="loader-overlay">
+        <i data-lucide="loader-2" class="spin" style="width:36px; height:36px"></i>
+        <span>Resolviendo reproductores de video en JavaScript...</span>
+    </div>
+    <video id="hls-video" controls style="display:none"></video>
+    <iframe id="embed-iframe" style="display:none" allowfullscreen></iframe>
+</div>
+
+<script>
+let currentHls = null;
+
+function getQueryParam(param) {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get(param);
+}
+
+function refreshIcons() { if(window.lucide) lucide.createIcons(); }
+
+async function initProxyPlayer() {
+    const rawTarget = getQueryParam('url');
+    const playerTitle = document.getElementById('player-title');
+    const loader = document.getElementById('loader');
+    const serverList = document.getElementById('server-list');
+
+    if (!rawTarget) {
+        loader.innerHTML = '<span style="color:#ff4444">Error: No se proporcionó el parámetro ?url=</span>';
+        return;
+    }
+
+    try {
+        // Extraer slug y cap de la URL si es posible
+        const cleanUrl = decodeURIComponent(rawTarget);
+        const urlParts = cleanUrl.replace(/\/+$/, '').split('/');
+        const epNum = urlParts.pop();
+        const slug = urlParts.pop();
+
+        playerTitle.textContent = `${slug.replace(/-/g, ' ').toUpperCase()} - Episodio ${epNum}`;
+
+        const streamRes = await JKAnimeScraper.resolveEpisodeStream(cleanUrl);
+        loader.style.display = 'none';
+
+        const servers = [];
+
+        // Agregar Streams M3U8 si existen
+        if (streamRes.success && streamRes.data.m3u8_streams.length > 0) {
+            streamRes.data.m3u8_streams.forEach((m3u8Url, idx) => {
+                servers.push({
+                    name: `Servidor Directo ${idx + 1} (HLS)`,
+                    type: 'hls',
+                    url: m3u8Url
+                });
+            });
+        }
+
+        // Agregar Iframes Embed (jkplayer/um no restringe iframe)
+        if (streamRes.success && streamRes.data.iframes.length > 0) {
+            streamRes.data.iframes.forEach((iframeUrl, idx) => {
+                let name = `Servidor Embed ${idx + 1}`;
+                if (iframeUrl.includes('um')) name = `Servidor UM ${idx + 1}`;
+                else if (iframeUrl.includes('c1')) name = `Servidor C1 ${idx + 1}`;
+                
+                servers.push({
+                    name: name,
+                    type: 'iframe',
+                    url: iframeUrl
+                });
+            });
+        }
+
+        if (servers.length === 0) {
+            loader.style.display = 'flex';
+            loader.innerHTML = '<span style="color:#ff4444">No se encontraron servidores ejecutables para este episodio</span>';
+            return;
+        }
+
+        // Renderizar botones de servidores
+        serverList.innerHTML = '';
+        servers.forEach((srv, i) => {
+            const btn = document.createElement('button');
+            btn.className = `server-btn ${i === 0 ? 'active' : ''}`;
+            btn.innerHTML = `<i data-lucide="server" style="width:12px"></i> ${srv.name}`;
+            btn.onclick = () => {
+                document.querySelectorAll('.server-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                switchServer(srv);
+            };
+            serverList.appendChild(btn);
+        });
+
+        refreshIcons();
+        switchServer(servers[0]);
+
+    } catch (err) {
+        loader.style.display = 'flex';
+        loader.innerHTML = `<span style="color:#ff4444">Error al resolver stream: ${err.message}</span>`;
+    }
+}
+
+function switchServer(srv) {
+    const video = document.getElementById('hls-video');
+    const iframe = document.getElementById('embed-iframe');
+
+    if (currentHls) {
+        currentHls.destroy();
+        currentHls = null;
+    }
+
+    if (srv.type === 'hls') {
+        iframe.style.display = 'none';
+        iframe.src = '';
+        video.style.display = 'block';
+
+        if (Hls.isSupported()) {
+            currentHls = new Hls();
+            currentHls.loadSource(srv.url);
+            currentHls.attachMedia(video);
+            currentHls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = srv.url;
+            video.play();
+        }
+    } else {
+        video.style.display = 'none';
+        video.pause();
+        iframe.style.display = 'block';
+        iframe.src = srv.url;
+    }
+}
+
+window.onload = () => {
+    refreshIcons();
+    initProxyPlayer();
+};
+</script>
+</body>
+</html>
