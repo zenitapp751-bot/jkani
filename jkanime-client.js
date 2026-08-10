@@ -1,24 +1,31 @@
 /**
- * JKAnime Client-Side Scraper Engine
- * Pure HTML5 & JavaScript (ES6+) implementation matching PHP backend structure.
+ * JKAnime Client-Side & Hybrid Scraper Engine
+ * Support for GitHub Pages: https://zenitapp751-bot.github.io/jkani/scrapper.html
  * Location: /scrappers/jkanime/jkanime-client.js
  */
 
 const JKAnimeScraper = (function () {
-    // Lista de CORS Proxies públicos con fallback automático para scraping HTML
-    const DEFAULT_PROXIES = [
-        (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-        (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-        (url) => `https://thingproxy.freeboard.io/fetch/${url}`,
-        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
-    ];
+    const getApiBaseUrl = () => {
+        if (typeof CONFIG !== 'undefined' && CONFIG.apiBaseUrl) {
+            return CONFIG.apiBaseUrl.replace(/\/+$/, '') + '/';
+        }
+        return 'https://over.xzod.cloud/scrappers/jkanime/';
+    };
+
+    const getCorsProxies = () => {
+        if (typeof CONFIG !== 'undefined' && Array.isArray(CONFIG.corsProxies) && CONFIG.corsProxies.length > 0) {
+            return CONFIG.corsProxies.map(p => (url) => p.includes('{url}') ? p.replace('{url}', encodeURIComponent(url)) : `${p}${encodeURIComponent(url)}`);
+        }
+        return [
+            (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+            (url) => `https://thingproxy.freeboard.io/fetch/${url}`,
+            (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+        ];
+    };
 
     let customProxy = null;
     let activeProxyIndex = 0;
 
-    /**
-     * Configurar un proxy personalizado opcional para solicitudes HTML
-     */
     function setCustomProxy(proxyUrl) {
         customProxy = proxyUrl ? (url) => proxyUrl.includes('{url}') ? proxyUrl.replace('{url}', encodeURIComponent(url)) : `${proxyUrl}${encodeURIComponent(url)}` : null;
     }
@@ -27,12 +34,13 @@ const JKAnimeScraper = (function () {
      * Petición HTTP robusta con auto-failover entre proxies CORS
      */
     async function proxyFetch(targetUrl, options = {}) {
+        const defaultProxies = getCorsProxies();
         const proxiesToTry = [];
         if (customProxy) proxiesToTry.push(customProxy);
         
-        for (let i = 0; i < DEFAULT_PROXIES.length; i++) {
-            const idx = (activeProxyIndex + i) % DEFAULT_PROXIES.length;
-            proxiesToTry.push(DEFAULT_PROXIES[idx]);
+        for (let i = 0; i < defaultProxies.length; i++) {
+            const idx = (activeProxyIndex + i) % defaultProxies.length;
+            proxiesToTry.push(defaultProxies[idx]);
         }
 
         let lastError = null;
@@ -54,9 +62,9 @@ const JKAnimeScraper = (function () {
 
                 if (response.ok) {
                     const text = await response.text();
-                    if (text && text.trim().length > 0) {
-                        if (!customProxy && i < DEFAULT_PROXIES.length) {
-                            activeProxyIndex = (activeProxyIndex + i) % DEFAULT_PROXIES.length;
+                    if (text && text.trim().length > 0 && !text.includes('500 Internal Server Error') && !text.includes('error code: 522')) {
+                        if (!customProxy && i < defaultProxies.length) {
+                            activeProxyIndex = (activeProxyIndex + i) % defaultProxies.length;
                         }
                         return text;
                     }
@@ -75,19 +83,17 @@ const JKAnimeScraper = (function () {
     function buildProxyUrl(rawUrl, proxyPhpBase = '') {
         let base = proxyPhpBase;
         if (!base) {
-            if (typeof window !== 'undefined' && window.location && window.location.protocol.startsWith('http')) {
-                const loc = window.location.href.split('?')[0];
-                base = loc.substring(0, loc.lastIndexOf('/')) + '/proxy.php?url=';
+            if (typeof CONFIG !== 'undefined' && CONFIG.proxyUrl) {
+                base = CONFIG.proxyUrl;
+            } else if (typeof window !== 'undefined' && window.CONFIG && window.CONFIG.proxyUrl) {
+                base = window.CONFIG.proxyUrl;
             } else {
-                base = 'https://over.xzod.cloud/scrappers/jkanime/proxy.php?url=';
+                base = 'https://cris.crispdev.online/zenit_proxy_m3u8.php?url=';
             }
         }
         return `${base}${encodeURIComponent(rawUrl)}`;
     }
 
-    /**
-     * Limpiar texto de SEO de JKAnime
-     */
     function limpiarSEO(texto) {
         if (!texto) return '';
         let t = texto.replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, '&');
@@ -98,9 +104,23 @@ const JKAnimeScraper = (function () {
     }
 
     /**
-     * OBTENER LISTA DE GÉNEROS (Equivalente a generos.php)
+     * OBTENER LISTA DE GÉNEROS (API -> Fallback Client-Side)
      */
     async function getGeneros() {
+        const apiBase = getApiBaseUrl();
+        try {
+            const res = await fetch(`${apiBase}generos.php`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success && Array.isArray(data.generos)) {
+                    return data;
+                }
+            }
+        } catch (apiErr) {
+            console.warn('API generos.php no respondió, ejecutando fallback client-side...');
+        }
+
+        // Fallback Client-Side
         try {
             const html = await proxyFetch('https://jkanime.net/directorio/');
             const parser = new DOMParser();
@@ -131,11 +151,29 @@ const JKAnimeScraper = (function () {
     }
 
     /**
-     * OBTENER DIRECTORIO DE ANIMES (Equivalente a directorio.php)
+     * OBTENER DIRECTORIO DE ANIMES (API -> Fallback Client-Side)
      */
     async function getDirectorio(pagina = 1, genero = '') {
+        const pageNum = Math.max(1, parseInt(pagina) || 1);
+        const apiBase = getApiBaseUrl();
+
         try {
-            const pageNum = Math.max(1, parseInt(pagina) || 1);
+            let url = `${apiBase}directorio.php?p=${pageNum}`;
+            if (genero && genero.trim() !== '') url += `&genero=${encodeURIComponent(genero)}`;
+
+            const res = await fetch(url);
+            if (res.ok) {
+                const data = await res.json();
+                if (data && Array.isArray(data.animes)) {
+                    return { success: true, ...data };
+                }
+            }
+        } catch (apiErr) {
+            console.warn('API directorio.php no respondió, ejecutando fallback client-side...');
+        }
+
+        // Fallback Client-Side
+        try {
             let targetUrl = `https://jkanime.net/directorio/?p=${pageNum}`;
             if (genero && genero.trim() !== '') {
                 targetUrl = `https://jkanime.net/directorio?genero=${encodeURIComponent(genero)}&p=${pageNum}`;
@@ -194,14 +232,28 @@ const JKAnimeScraper = (function () {
     }
 
     /**
-     * BUSCADOR DE ANIMES (Equivalente a apibuscador.php)
+     * BUSCADOR DE ANIMES (API -> Fallback Client-Side)
      */
     async function buscarAnime(query) {
         if (!query || !query.trim()) {
             return { success: false, error: "Consulta de búsqueda vacía" };
         }
         const q = query.trim();
+        const apiBase = getApiBaseUrl();
 
+        try {
+            const res = await fetch(`${apiBase}apibuscador.php?q=${encodeURIComponent(q)}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.success && Array.isArray(data.results)) {
+                    return data;
+                }
+            }
+        } catch (apiErr) {
+            console.warn('API apibuscador.php no respondió, ejecutando fallback client-side...');
+        }
+
+        // Fallback Client-Side
         try {
             const homeHtml = await proxyFetch('https://jkanime.net/');
             const tokenMatch = homeHtml.match(/<meta name="csrf-token" content="([^"]+)">/);
@@ -272,11 +324,25 @@ const JKAnimeScraper = (function () {
     }
 
     /**
-     * OBTENER FICHA TÉCNICA Y METADATOS (Equivalente a testcap_v2.php)
+     * OBTENER FICHA TÉCNICA Y METADATOS (API -> Fallback Client-Side)
      */
     async function getAnimeInfo(slug) {
         if (!slug) return { success: false, error: "Slug requerido" };
+        const apiBase = getApiBaseUrl();
 
+        try {
+            const res = await fetch(`${apiBase}testcap_v2.php?slug=${encodeURIComponent(slug)}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.success && data.data) {
+                    return data;
+                }
+            }
+        } catch (apiErr) {
+            console.warn('API testcap_v2.php no respondió, ejecutando fallback client-side...');
+        }
+
+        // Fallback Client-Side
         try {
             const html = await proxyFetch(`https://jkanime.net/${slug}/`);
             const parser = new DOMParser();
@@ -358,11 +424,27 @@ const JKAnimeScraper = (function () {
     }
 
     /**
-     * OBTENER LISTA DE ENLACES RAW DE CAPÍTULOS (Equivalente a testcap.php)
+     * OBTENER LISTA DE ENLACES RAW DE CAPÍTULOS (API -> Fallback Client-Side)
      */
     async function getCapitulosRaw(slug, animeId = null, totalCapsIn = null) {
         if (!slug) return { success: false, error: "Slug requerido" };
+        const apiBase = getApiBaseUrl();
 
+        if (animeId) {
+            try {
+                const res = await fetch(`${apiBase}testcap.php?id=${encodeURIComponent(animeId)}&slug=${encodeURIComponent(slug)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.success && Array.isArray(data.links)) {
+                        return data;
+                    }
+                }
+            } catch (apiErr) {
+                console.warn('API testcap.php no respondió, ejecutando fallback client-side...');
+            }
+        }
+
+        // Fallback Client-Side
         try {
             let totalCapitulos = totalCapsIn;
 
@@ -388,58 +470,6 @@ const JKAnimeScraper = (function () {
                     paginas_recorridas: 1,
                     links: links
                 };
-            }
-
-            if (animeId) {
-                const html = await proxyFetch(`https://jkanime.net/${slug}/`);
-                const tokenMatch = html.match(/<meta name="csrf-token" content="([^"]+)">/);
-                const token = tokenMatch ? tokenMatch[1] : null;
-
-                if (token) {
-                    const allLinks = [];
-                    let page = 1;
-                    let lastPage = 1;
-
-                    do {
-                        try {
-                            const epResText = await proxyFetch(`https://jkanime.net/ajax/episodes/${animeId}/${page}`, {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                                    'X-CSRF-TOKEN': token,
-                                    'X-Requested-With': 'XMLHttpRequest'
-                                },
-                                body: `_token=${encodeURIComponent(token)}`
-                            });
-
-                            const data = JSON.parse(epResText);
-                            if (data && Array.isArray(data.data)) {
-                                data.data.forEach(ep => {
-                                    allLinks.push({
-                                        cap: ep.number,
-                                        url: `https://jkanime.net/${slug}/${ep.number}/`
-                                    });
-                                });
-                                lastPage = data.last_page || 1;
-                            } else {
-                                break;
-                            }
-                        } catch (err) {
-                            break;
-                        }
-                        page++;
-                    } while (page <= lastPage);
-
-                    if (allLinks.length > 0) {
-                        allLinks.sort((a, b) => a.cap - b.cap);
-                        return {
-                            success: true,
-                            total_total: allLinks.length,
-                            paginas_recorridas: lastPage,
-                            links: allLinks
-                        };
-                    }
-                }
             }
 
             return {

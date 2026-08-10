@@ -8,6 +8,8 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- HLS.js Library -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <!-- Configuración del Proxy (config.js) -->
+    <script src="config.js"></script>
     <!-- JKAnime Scraper Engine (Client-Side JS) -->
     <script src="jkanime-client.js"></script>
     <style>
@@ -414,8 +416,10 @@ async function cargarAnime(slug) {
         const jCaps = await JKAnimeScraper.getCapitulosRaw(slug, jMeta.data.id, jMeta.data.ultimo_capitulo);
 
         const capsFinal = [];
+        const activeProxyBase = (typeof CONFIG !== 'undefined' && CONFIG.proxyUrl) ? CONFIG.proxyUrl : '';
+
         (jCaps.links || []).forEach(ep => {
-            const proxyUrl = JKAnimeScraper.buildProxyUrl(ep.url);
+            const proxyUrl = JKAnimeScraper.buildProxyUrl(ep.url, activeProxyBase);
             capsFinal.push({ cap: ep.cap, url: proxyUrl });
             
             const btnGroup = document.createElement('div');
