@@ -30,9 +30,6 @@ const JKAnimeScraper = (function () {
         customProxy = proxyUrl ? (url) => proxyUrl.includes('{url}') ? proxyUrl.replace('{url}', encodeURIComponent(url)) : `${proxyUrl}${encodeURIComponent(url)}` : null;
     }
 
-    /**
-     * Petición HTTP robusta con auto-failover entre proxies CORS
-     */
     async function proxyFetch(targetUrl, options = {}) {
         const defaultProxies = getCorsProxies();
         const proxiesToTry = [];
@@ -77,19 +74,18 @@ const JKAnimeScraper = (function () {
         throw new Error(`Error en proxyFetch tras reintentar con todos los proxies: ${lastError ? lastError.message : 'Error de red'}`);
     }
 
-    /**
-     * Construir enlace de Proxy HTML para reproducción en HTML5 / GitHub Pages
-     */
-    function buildProxyUrl(rawUrl, proxyHtmlBase = '') {
-        if (proxyHtmlBase) {
-            return `${proxyHtmlBase}${encodeURIComponent(rawUrl)}`;
+    function buildProxyUrl(rawUrl, proxyPhpBase = '') {
+        let base = proxyPhpBase;
+        if (!base) {
+            if (typeof CONFIG !== 'undefined' && CONFIG.proxyUrl) {
+                base = CONFIG.proxyUrl;
+            } else if (typeof window !== 'undefined' && window.CONFIG && window.CONFIG.proxyUrl) {
+                base = window.CONFIG.proxyUrl;
+            } else {
+                base = 'https://cris.crispdev.online/zenit_proxy_m3u8.php?url=';
+            }
         }
-        if (typeof window !== 'undefined' && window.location && window.location.protocol.startsWith('http')) {
-            const loc = window.location.href.split('?')[0];
-            const dir = loc.substring(0, loc.lastIndexOf('/'));
-            return `${dir}/proxy.html?url=${encodeURIComponent(rawUrl)}`;
-        }
-        return `./proxy.html?url=${encodeURIComponent(rawUrl)}`;
+        return `${base}${encodeURIComponent(rawUrl)}`;
     }
 
     function limpiarSEO(texto) {
@@ -116,7 +112,6 @@ const JKAnimeScraper = (function () {
             }
         } catch (apiErr) {}
 
-        // Fallback Client-Side
         try {
             const html = await proxyFetch('https://jkanime.net/directorio/');
             const parser = new DOMParser();
@@ -166,7 +161,6 @@ const JKAnimeScraper = (function () {
             }
         } catch (apiErr) {}
 
-        // Fallback Client-Side
         try {
             let targetUrl = `https://jkanime.net/directorio/?p=${pageNum}`;
             if (genero && genero.trim() !== '') {
@@ -245,7 +239,6 @@ const JKAnimeScraper = (function () {
             }
         } catch (apiErr) {}
 
-        // Fallback Client-Side
         try {
             const homeHtml = await proxyFetch('https://jkanime.net/');
             const tokenMatch = homeHtml.match(/<meta name="csrf-token" content="([^"]+)">/);
@@ -332,7 +325,6 @@ const JKAnimeScraper = (function () {
             }
         } catch (apiErr) {}
 
-        // Fallback Client-Side
         try {
             const html = await proxyFetch(`https://jkanime.net/${slug}/`);
             const parser = new DOMParser();
@@ -432,7 +424,6 @@ const JKAnimeScraper = (function () {
             } catch (apiErr) {}
         }
 
-        // Fallback Client-Side
         try {
             let totalCapitulos = totalCapsIn;
 
