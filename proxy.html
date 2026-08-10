@@ -174,8 +174,8 @@ async function initProxyPlayer() {
 
         serversList = [];
 
-        // Servidor 1: HLS HD Direct Stream (over.xzod.cloud)
-        const primaryHlsUrl = JKAnimeScraper.buildProxyUrl(cleanUrl);
+        // Servidor 1: HLS HD Direct Stream (Garantizado M3U8 en over.xzod.cloud)
+        const primaryHlsUrl = "https://over.xzod.cloud/scrappers/jkanime/proxy.php?url=" + encodeURIComponent(cleanUrl);
         serversList.push({
             name: 'Servidor 1: HLS HD (Principal)',
             type: 'hls',
@@ -255,9 +255,7 @@ function switchServer(srv) {
 
             currentHls.on(Hls.Events.MANIFEST_PARSED, () => {
                 loader.style.display = 'none';
-                video.play().catch(() => {
-                    // Si el navegador bloquea autoplay sin silenciar, no marcar fatal
-                });
+                video.play().catch(() => {});
             });
 
             currentHls.on(Hls.Events.ERROR, (event, data) => {
