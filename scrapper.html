@@ -226,7 +226,7 @@
             max-width: 850px;
         }
 
-        video, iframe { width: 100%; aspect-ratio: 16/9; display: block; border: none; }
+        iframe { width: 100%; aspect-ratio: 16/9; display: block; border: none; }
 
         pre {
             background: #000;
@@ -325,10 +325,6 @@
     </div>
 
     <div id="player-container">
-        <div id="player-loading" class="loader" style="display:none; background:#000; padding:40px">
-            <i data-lucide="loader-2" class="spin"></i> Cargando reproductor de video...
-        </div>
-        <video id="hls-video" controls style="display:none"></video>
         <iframe id="embed-iframe" style="display:none" allowfullscreen></iframe>
         <div style="padding: 10px 15px; background: #111; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
             <small id="video-title" style="color: var(--accent); font-weight: bold;"></small>
@@ -343,7 +339,7 @@
 <div id="toast" class="copy-toast">¡Copiado!</div>
 
 <script>
-let curPage = 1, totalPages = 1, currentGenre = "", searchTimeout = null, lastScrapedJSON = null, currentHls = null;
+let curPage = 1, totalPages = 1, currentGenre = "", searchTimeout = null, lastScrapedJSON = null;
 
 const listContent = document.getElementById('list-content');
 const infoOutput = document.getElementById('info-output');
@@ -351,10 +347,8 @@ const pageNum = document.getElementById('page-num');
 const genreSelect = document.getElementById('genre-select');
 const searchInput = document.getElementById('anime-search');
 const clearSearchBtn = document.getElementById('clear-search');
-const hlsVideo = document.getElementById('hls-video');
 const embedIframe = document.getElementById('embed-iframe');
 const playerContainer = document.getElementById('player-container');
-const playerLoading = document.getElementById('player-loading');
 const videoTitle = document.getElementById('video-title');
 const dynamicActions = document.getElementById('dynamic-actions');
 
@@ -438,8 +432,9 @@ async function cargarAnime(slug) {
 
         const capsFinal = [];
         (jCaps.links || []).forEach(ep => {
-            const proxyM3u8Url = JKAnimeScraper.buildProxyUrl(ep.url);
-            capsFinal.push({ cap: ep.cap, url: proxyM3u8Url, raw_url: ep.url });
+            const htmlProxyUrl = `./proxy.html?url=${encodeURIComponent(ep.url)}`;
+            const m3u8Url = JKAnimeScraper.buildProxyUrl(ep.url);
+            capsFinal.push({ cap: ep.cap, url: htmlProxyUrl, raw_url: ep.url, m3u8_url: m3u8Url });
             
             const btnGroup = document.createElement('div');
             btnGroup.className = 'actions-overlay';
@@ -450,8 +445,8 @@ async function cargarAnime(slug) {
                 <button class="btn-action btn-proxy" onclick="openHtmlProxy('${ep.url}')">
                     <i data-lucide="external-link" style="width:12px"></i> HTML Proxy
                 </button>
-                <button class="btn-action btn-copy" onclick="copyToClipboard('${proxyM3u8Url}')">
-                    <i data-lucide="link" style="width:12px"></i> Copiar M3U8
+                <button class="btn-action btn-copy" onclick="copyToClipboard('${htmlProxyUrl}')">
+                    <i data-lucide="link" style="width:12px"></i> Link Proxy
                 </button>
             `;
             dynamicActions.appendChild(btnGroup);
@@ -469,71 +464,17 @@ function openHtmlProxy(epUrl) {
     window.open(htmlProxyUrl, '_blank');
 }
 
-async function playEpisode(epUrl, label) {
+function playEpisode(epUrl, label) {
     playerContainer.style.display = 'block';
-    playerLoading.style.display = 'flex';
-    hlsVideo.style.display = 'none';
-    embedIframe.style.display = 'none';
+    embedIframe.style.display = 'block';
     videoTitle.textContent = label;
+    embedIframe.src = `./proxy.html?url=${encodeURIComponent(epUrl)}`;
     playerContainer.scrollIntoView({ behavior: 'smooth' });
-
-    if (currentHls) {
-        currentHls.destroy();
-        currentHls = null;
-    }
-
-    const proxyStreamUrl = JKAnimeScraper.buildProxyUrl(epUrl);
-
-    // Intentar reproducción directa HLS vía Proxy M3U8 de alta definición
-    if (Hls.isSupported()) {
-        currentHls = new Hls({
-            enableWorker: true,
-            lowLatencyMode: false
-        });
-
-        currentHls.loadSource(proxyStreamUrl);
-        currentHls.attachMedia(hlsVideo);
-
-        currentHls.on(Hls.Events.MANIFEST_PARSED, () => {
-            playerLoading.style.display = 'none';
-            hlsVideo.style.display = 'block';
-            hlsVideo.play().catch(() => {});
-        });
-
-        currentHls.on(Hls.Events.ERROR, async (event, data) => {
-            if (data.fatal) {
-                // Fallback a resolución directa client-side iframe
-                try {
-                    const res = await JKAnimeScraper.resolveEpisodeStream(epUrl);
-                    playerLoading.style.display = 'none';
-                    if (res.success && res.data.iframes.length > 0) {
-                        embedIframe.style.display = 'block';
-                        embedIframe.src = res.data.iframes[0];
-                    } else {
-                        videoTitle.textContent = label + ' (Error de carga HLS / Iframe)';
-                    }
-                } catch (e) {
-                    playerLoading.style.display = 'none';
-                    videoTitle.textContent = label + ' (Error al reproducir)';
-                }
-            }
-        });
-    } else if (hlsVideo.canPlayType('application/vnd.apple.mpegurl')) {
-        playerLoading.style.display = 'none';
-        hlsVideo.style.display = 'block';
-        hlsVideo.src = proxyStreamUrl;
-        hlsVideo.play().catch(() => {});
-    }
 }
 
 function closeVideo() { 
     playerContainer.style.display='none'; 
-    hlsVideo.pause(); 
     embedIframe.src = '';
-    if (currentHls) {
-        currentHls.destroy();
-        currentHls = null;
-    }
 }
 
 async function cargarGeneros() {

@@ -143,6 +143,8 @@
 
 <script>
 let currentHls = null;
+let serversList = [];
+let activeServerIndex = 0;
 
 function getQueryParam(param) {
     const urlParams = new URLSearchParams(window.location.search);
@@ -170,11 +172,11 @@ async function initProxyPlayer() {
 
         playerTitle.textContent = `${slug.replace(/-/g, ' ').toUpperCase()} - Capítulo ${epNum}`;
 
-        const servers = [];
+        serversList = [];
 
         // Servidor 1: HLS HD Direct Proxy
         const primaryHlsUrl = JKAnimeScraper.buildProxyUrl(cleanUrl);
-        servers.push({
+        serversList.push({
             name: 'Servidor 1: HLS HD (Principal)',
             type: 'hls',
             url: primaryHlsUrl
@@ -182,7 +184,7 @@ async function initProxyPlayer() {
 
         // Servidor 2: HLS Backup Proxy
         if (typeof CONFIG !== 'undefined' && CONFIG.fallbackProxyUrl) {
-            servers.push({
+            serversList.push({
                 name: 'Servidor 2: HLS Backup',
                 type: 'hls',
                 url: `${CONFIG.fallbackProxyUrl}${encodeURIComponent(cleanUrl)}`
@@ -194,7 +196,7 @@ async function initProxyPlayer() {
             const streamRes = await JKAnimeScraper.resolveEpisodeStream(cleanUrl);
             if (streamRes.success && streamRes.data.iframes.length > 0) {
                 streamRes.data.iframes.forEach((iframeUrl, idx) => {
-                    servers.push({
+                    serversList.push({
                         name: `Servidor Embebido ${idx + 1}`,
                         type: 'iframe',
                         url: iframeUrl
@@ -205,20 +207,22 @@ async function initProxyPlayer() {
 
         // Renderizar botones de servidores
         serverList.innerHTML = '';
-        servers.forEach((srv, i) => {
+        serversList.forEach((srv, i) => {
             const btn = document.createElement('button');
             btn.className = `server-btn ${i === 0 ? 'active' : ''}`;
             btn.innerHTML = `<i data-lucide="server" style="width:12px"></i> ${srv.name}`;
             btn.onclick = () => {
-                document.querySelectorAll('.server-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
+                activeServerIndex = i;
+                document.querySelectorAll('.server-btn').forEach((b, idx) => {
+                    b.classList.toggle('active', idx === i);
+                });
                 switchServer(srv);
             };
             serverList.appendChild(btn);
         });
 
         refreshIcons();
-        switchServer(servers[0]);
+        switchServer(serversList[0]);
 
     } catch (err) {
         loader.style.display = 'flex';
@@ -260,8 +264,15 @@ function switchServer(srv) {
 
             currentHls.on(Hls.Events.ERROR, (event, data) => {
                 if (data.fatal) {
-                    loader.style.display = 'flex';
-                    loader.innerHTML = '<span style="color:#ff4444">Error al cargar manifest HLS. Selecciona otro servidor arriba.</span>';
+                    if (activeServerIndex + 1 < serversList.length) {
+                        activeServerIndex++;
+                        const btns = document.querySelectorAll('.server-btn');
+                        btns.forEach((b, idx) => b.classList.toggle('active', idx === activeServerIndex));
+                        switchServer(serversList[activeServerIndex]);
+                    } else {
+                        loader.style.display = 'flex';
+                        loader.innerHTML = '<span style="color:#ff4444">Error al cargar manifest HLS. Selecciona otro servidor arriba.</span>';
+                    }
                 }
             });
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
